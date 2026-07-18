@@ -1,36 +1,17 @@
-
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+from features import selected_features
+df = pd.read_csv('data/raw/hikari2021.csv')
+df = df[selected_features]
+print(df.isnull().sum()) 
+df = df.dropna()
+print("Duplicates:", df.duplicated().sum())
+print('Duplicated rows:', df[df.duplicated()])
+df = df.drop_duplicates()
+categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
+print(categorical_columns)
+print(df.dtypes)
 
-def preprocess_data(input_path, output_path):
-    df = pd.read_csv(input_path)
 
-    print("Dataset Shape:", df.shape)
-    print("\nMissing Values:")
-    print(df.isnull().sum())
-
-    # Remove duplicate rows
-    df = df.drop_duplicates()
-
-    # Fill numeric missing values with median
-    numeric_cols = df.select_dtypes(include=["number"]).columns
-    for col in numeric_cols:
-        df[col] = df[col].fillna(df[col].median())
-
-    # Fill categorical missing values with mode
-    categorical_cols = df.select_dtypes(include=["object"]).columns
-    for col in categorical_cols:
-        if df[col].isnull().sum() > 0:
-            df[col] = df[col].fillna(df[col].mode()[0])
-
-    # Encode categorical columns
-    encoder = LabelEncoder()
-    for col in categorical_cols:
-        df[col] = encoder.fit_transform(df[col].astype(str))
-
-    df.to_csv(output_path, index=False)
-    print(f"Processed dataset saved to {output_path}")
-
-if __name__ == "__main__":
-    preprocess_data("../data/raw/hikari.csv",
-                    "../data/processed/hikari_processed.csv")
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+print(df["Label"].value_counts())
+df.to_csv("data/processed/hikari_processed.csv", index=False)

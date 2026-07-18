@@ -1,0 +1,21 @@
+selected_features = [
+    "responp",
+    "flow_duration",
+    "fwd_pkts_tot",
+    "bwd_pkts_tot",
+    "fwd_pkts_payload.tot",
+    "bwd_pkts_payload.tot",
+    "payload_bytes_per_second",
+    "flow_pkts_per_sec",
+    "flow_pkts_payload.avg",
+    "flow_pkts_payload.std",
+    "flow_pkts_payload.max",
+    "flow_pkts_payload.min",
+    "flow_iat.avg",
+    "fwd_iat.avg",
+    "bwd_iat.avg",
+    "flow_SYN_flag_count",
+    "flow_ACK_flag_count",
+    "flow_RST_flag_count",
+    "Label"
+]
