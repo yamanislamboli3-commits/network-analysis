@@ -5,7 +5,8 @@ from sklearn.metrics import (accuracy_score,precision_score,recall_score,f1_scor
 import joblib
 from imblearn.over_sampling import SMOTE
 from sklearn.metrics import classification_report
-df = pd.read_csv("data/processed/hikari_processed.csv")
+from imblearn.ensemble import BalancedRandomForestClassifier
+df = pd.read_csv("data/processed/cicids2017_processed.csv")
 
 X = df.drop("Label", axis=1)
 y = df["Label"]
@@ -14,16 +15,19 @@ X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-model = RandomForestClassifier(
-    n_estimators=1000,
+model = BalancedRandomForestClassifier(
+    n_estimators=500,
     random_state=42,
-    class_weight="balanced",
     n_jobs=-1
 )
 
 model.fit(X_train, y_train)
 
-y_pred = model.predict(X_test)
+probs = model.predict_proba(X_test)[:, 1]
+
+threshold = 0.7
+
+y_pred = (probs >= threshold).astype(int)
 
 
 print(classification_report(y_test, y_pred))
@@ -34,4 +38,11 @@ print("F1 Score:", f1_score(y_test, y_pred))
 print("Confusion Matrix:")
 print(confusion_matrix(y_test, y_pred))
 
+importance = pd.Series(
+    model.feature_importances_,
+    index=X_train.columns
+)
+
+print(importance.sort_values(ascending=False))
 joblib.dump(model, "models/random_forest_hikari.pkl")
+model = joblib.load("models/random_forest_hikari.pkl")
