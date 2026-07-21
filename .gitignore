@@ -3,3 +3,12 @@ __pycache__/
 data/raw/
 data/processed/
 *.pkl
+# Test and generated files
+captured.pcapng
+flows.csv
+predictions.csv
+
+
+
+# Virtual environment
+venv/
