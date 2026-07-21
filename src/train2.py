@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import joblib
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import (accuracy_score, precision_score, recall_score,
                              f1_score, confusion_matrix, classification_report,
                              precision_recall_curve)
@@ -28,10 +28,9 @@ CONFIG = {
     "metrics_name": "metrics.json",
     "random_state": 42,
     "test_size": 0.15,
-    "val_size": 0.15, # Kalan Train setinden Validation için ayrılacak oran
-    "n_estimators": 300,  # Ağaç sayısı
-    "n_jobs": 1,      # Tüm CPU çekirdeklerini kullan
-    "cv_folds": 3    # Cross-validation kat sayısı
+    "val_size": 0.15,        # Kalan Train setinden Validation için ayrılacak oran
+    "n_estimators": 500,      # Ağaç sayısı
+    "n_jobs": -1              # Tüm CPU çekirdeklerini kullan
 }
 
 # ==========================================
@@ -75,33 +74,6 @@ def load_and_split_data():
     return X_train, X_val, X_test, y_train, y_val, y_test
 
 
-def run_cross_validation(model, X_train, y_train):
-    """Eğitim seti üzerinde Stratified K-Fold cross-validation uygular.
-
-    Bu, tek bir train/val bölünmesine güvenmek yerine, modelin farklı
-    veri alt kümelerinde ne kadar tutarlı performans gösterdiğini ölçer.
-    Not: Bu sadece bir tanı/kontrol adımıdır — final model yine de
-    tüm X_train üzerinde ayrıca eğitilir (aşağıda model.fit ile).
-    """
-    logger.info(f"{CONFIG['cv_folds']}-fold Stratified Cross-Validation başlatılıyor...")
-
-    skf = StratifiedKFold(
-        n_splits=CONFIG["cv_folds"],
-        shuffle=True,
-        random_state=CONFIG["random_state"]
-    )
-
-    cv_scores = cross_val_score(
-        model, X_train, y_train,
-        cv=skf, scoring="f1", n_jobs=CONFIG["n_jobs"]
-    )
-
-    logger.info(f"CV F1 skorları (her kat): {cv_scores}")
-    logger.info(f"CV F1 ortalama: {cv_scores.mean():.4f}  |  std: {cv_scores.std():.4f}")
-
-    return cv_scores
-
-
 def find_best_threshold(y_true, y_probs):
     """Validation seti üzerinde F1 skorunu maksimize eden en iyi eşik (threshold) değerini bulur."""
     logger.info("Optimum threshold (eşik) değeri hesaplanıyor...")
@@ -109,7 +81,7 @@ def find_best_threshold(y_true, y_probs):
 
     # Sıfıra bölme hatasını önlemek için paydaya epsilon (1e-10) ekliyoruz
     f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-10)
-    best_idx = np.argmax(f1_scores[:-1])   # İlk threshold değeri yok, bu yüzden 1'den başlıyoruz
+    best_idx = np.argmax(f1_scores[:-1])   
     best_threshold = thresholds[best_idx]
 
     logger.info(f"En iyi Threshold: {best_threshold:.4f} (Validation F1 Score: {f1_scores[best_idx]:.4f})")
@@ -128,20 +100,22 @@ def main():
     # Veriyi hazırla
     X_train, X_val, X_test, y_train, y_val, y_test = load_and_split_data()
 
-    # Model nesnesini oluştur (henüz fit edilmedi — CV bunu kendi içinde klonlayarak kullanacak)
+    # Model nesnesini oluştur
     model = BalancedRandomForestClassifier(
         n_estimators=CONFIG["n_estimators"],
         random_state=CONFIG["random_state"],
         n_jobs=CONFIG["n_jobs"]
     )
 
-    # Cross-Validation (sadece Train seti üzerinde, tanı amaçlı)
-    cv_scores = run_cross_validation(model, X_train, y_train)
-
     # Modeli tüm Train seti üzerinde eğit (final model)
     logger.info("Balanced Random Forest modeli tüm Train seti üzerinde eğitiliyor...")
     model.fit(X_train, y_train)
     logger.info("Model eğitimi başarıyla tamamlandı.")
+
+    # Train seti üzerinde performansı ölç (overfitting kontrolü için)
+    train_preds = model.predict(X_train)
+    train_f1 = f1_score(y_train, train_preds)
+    logger.info(f"Train F1 (overfitting kontrolü): {train_f1:.4f}")
 
     # Threshold Optimizasyonu (Sadece Validation seti ile yapılıyor!)
     val_probs = model.predict_proba(X_val)[:, 1]
@@ -152,26 +126,30 @@ def main():
     test_probs = model.predict_proba(X_test)[:, 1]
     y_pred = (test_probs >= best_threshold).astype(int)
 
+    test_f1 = f1_score(y_test, y_pred)
+
     metrics = {
         "accuracy": accuracy_score(y_test, y_pred),
         "precision": precision_score(y_test, y_pred),
         "recall": recall_score(y_test, y_pred),
-        "f1_score": f1_score(y_test, y_pred),
-        "best_threshold": float(best_threshold),
-        "cv_f1_scores": cv_scores.tolist(),
-        "cv_f1_mean": float(cv_scores.mean()),
-        "cv_f1_std": float(cv_scores.std())
+        "f1_score": test_f1,
+        "train_f1_score": train_f1,
+        "best_threshold": float(best_threshold)
     }
 
     # Sonuçları terminale bas
     logger.info("\n" + classification_report(y_test, y_pred))
     logger.info(f"\nConfusion Matrix:\n{confusion_matrix(y_test, y_pred)}")
 
-    # CV ile Test sonucu arasındaki farkı karşılaştır (tutarlılık kontrolü)
-    logger.info(
-        f"CV F1 ortalama: {cv_scores.mean():.4f}  |  Test F1: {metrics['f1_score']:.4f}  |  "
-        f"Fark: {abs(cv_scores.mean() - metrics['f1_score']):.4f}"
-    )
+    # Train ve Test F1 arasındaki farkı karşılaştır (overfitting sinyali)
+    gap = train_f1 - test_f1
+    logger.info(f"Train F1: {train_f1:.4f}  |  Test F1: {test_f1:.4f}  |  Fark: {gap:.4f}")
+    if gap > 0.05:
+        logger.warning(
+            "Train ve Test F1 arasındaki fark 0.05'ten büyük — model overfit "
+            "etmiş olabilir. max_depth düşürmeyi veya min_samples_leaf'i "
+            "artırmayı düşünebilirsiniz."
+        )
 
     # Kaydetme İşlemleri
     logger.info("Model diske kaydediliyor: %s", model_save_path)
