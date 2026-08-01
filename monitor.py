@@ -20,6 +20,8 @@ class MonitorWorker(threading.Thread):
 
         self.running = False
         self.latest_df = None
+        self.update_count = 0
+        self.last_error = None
 
     def stop(self):
         self.running = False
@@ -67,6 +69,8 @@ class MonitorWorker(threading.Thread):
                     self.latest_df = pd.read_csv(
                         io.StringIO(response.text)
                     )
+                    self.update_count += 1
+                    self.last_error = None
                     print("Worker:", id(self))
                     print(self.latest_df.columns.tolist())
                     print(self.latest_df.head())
@@ -77,10 +81,11 @@ class MonitorWorker(threading.Thread):
                     print("Flows received:", len(self.latest_df))
 
                 else:
+                    self.last_error = f"API {response.status_code}: {response.text}"
                     print(response.text)
 
             except Exception as e:
-
+                self.last_error = str(e)
                 print("ERROR:", e)
 
             time.sleep(1)

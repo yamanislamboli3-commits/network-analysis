@@ -1,5 +1,5 @@
 import pandas as pd
-
+import numpy as np
 COLUMN_MAPPING = {
     "dst_port": "Destination Port",
     "flow_duration": "Flow Duration",
@@ -194,41 +194,51 @@ def preprocess_flows(input_csv):
     schema, and returns (features_df, identifiers_df).
 
     identifiers_df is None if the identifier columns aren't present in
-    the input (e.g. an already-stripped CSV) — callers should handle that.
+    the input (e.g. an already-stripped CSV).
     """
+
     df = pd.read_csv(input_csv)
     df.columns = df.columns.str.strip()
 
-    # Keep flow identifiers before they get dropped by the FEATURES slice,
-    # so predictions can be traced back to a specific src/dst pair later.
+    # Keep flow identifiers
     available_ids = [c for c in IDENTIFIER_COLUMNS if c in df.columns]
     identifiers = df[available_ids].copy() if available_ids else None
 
+    # Rename CICFlowMeter columns to training columns
     df.rename(columns=COLUMN_MAPPING, inplace=True)
 
     if "Fwd Header Length" not in df.columns:
         raise ValueError(
-            "'fwd_header_len' (-> 'Fwd Header Length') missing after mapping — "
-            "check the cicflowmeter output header against COLUMN_MAPPING."
+            "'fwd_header_len' (-> 'Fwd Header Length') missing after mapping."
         )
+
+    # Duplicate column exactly as in CICIDS2017
     df["Fwd Header Length.1"] = df["Fwd Header Length"]
 
+    # Check required features
     missing = [c for c in FEATURES if c not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns after mapping: {missing}")
 
-    df = df[FEATURES]
+    # Keep only model features
+    df = df[FEATURES].copy()
 
-    # Coerce to numeric and handle inf/NaN the same way training data was cleaned
+    # Convert everything to numeric
     df = df.apply(pd.to_numeric, errors="coerce")
-    df = df.replace([float("inf"), float("-inf")], pd.NA)
 
+    # Replace infinities with NaN (avoids pandas 3.0.x bug)
+    df = df.mask(np.isinf(df), np.nan)
+
+    # Remove invalid rows
     valid_mask = df.notna().all(axis=1)
     n_dropped = int((~valid_mask).sum())
 
-    df_clean = df[valid_mask].reset_index(drop=True)
+    df_clean = df.loc[valid_mask].reset_index(drop=True)
+
     identifiers_clean = (
-        identifiers[valid_mask].reset_index(drop=True) if identifiers is not None else None
+        identifiers.loc[valid_mask].reset_index(drop=True)
+        if identifiers is not None
+        else None
     )
 
     return df_clean, identifiers_clean, n_dropped
